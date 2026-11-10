@@ -218,7 +218,7 @@ Cap2/
 │   ├── age_gender_estimator.py   gọi DeepFace, lọc kết quả giả, hiệu chỉnh tuổi
 │   ├── region_mapping.py         nhóm chủng tộc DeepFace → nhóm khu vực
 │   ├── telegram_alert.py         trigger_buzzer_signal (còi ngoài) + gửi Telegram kiểu cũ
-│   ├── trackers/smartcau_botsort.yaml  cấu hình BoT-SORT
+│   ├── trackers/smartcau_botsort.yaml  cấu hình BoT-SORT tích hợp ReID chống nhảy ID (with_reid: true, model: auto, track_buffer: 90)
 │   ├── camera_in.py, camera_out.py     camera kiểu CŨ (1 camera vào, 1 camera ra) — không dùng nữa, giữ tham khảo
 ├── tools/                        CÔNG CỤ
 │   ├── kiem_tra_mang.py          kiểm tra kết nối nhiều máy
@@ -304,17 +304,25 @@ Mỗi chức năng ghi: **làm gì → quy tắc → tệp code → API → bả
 - **Tệp:** `ai_engine/line_crossing.py`, `ai_engine/group_detector.py`, `ai_engine/camera_bridge.py`, `backend/routers/counting.py::facade_pass, facade_stats`.
 - **Test:** `tests/test_group_facade.py`.
 
-### 5.8 Camera: tốc độ, mất tín hiệu, nhịp tim (NFR-03)
+### 5.8 Camera: Live Stream trực tiếp, chống nhảy ID (ReID), nhịp tim và mất tín hiệu (NFR-03)
+- **Live Stream trực tiếp tập trung (F1.5):**
+  - Camera `camera_bridge.py` tự động nén khung hình đã vẽ vạch kẻ và HUD sang định dạng JPEG (chất lượng 65, chiều rộng tối đa 960px để tối ưu băng thông) và đưa vào hàng đợi luồng gửi nền `Net.send_stream_frame`.
+  - Khung hình được gửi lên backend qua `POST /bridge/stream_frame/{camera_id}` (~10–12 khung/giây). Tắt truyền luồng bằng cờ `--no-stream`.
+  - Backend `routers/bridge.py` phát luồng liên tục dạng MJPEG tại `GET /bridge/stream/{camera_id}` và cung cấp ảnh chụp tức thời `GET /bridge/stream_snapshot/{camera_id}`.
+  - Web Streamlit `frontend/views/camera.py` tích hợp tab **Xem Trực Tiếp (Live Stream)** hiển thị video 2 đầu cầu tập trung, tự động chuyển sang snapshot dự phòng nếu luồng bị ngắt.
+- **Bộ theo dõi chống "Nhảy ID / Đổi ID" (Tracking ID Switch) bằng ReID:**
+  - Tệp cấu hình `ai_engine/trackers/smartcau_botsort.yaml` kích hoạt **ReID** (`with_reid: true`) sử dụng đặc trưng native backbone detector (`model: auto`) kết hợp khoảng cách vị trí và Kalman filter.
+  - Tăng `track_buffer: 90` (~6 giây ở 15 khung hình/giây) giúp ghi nhớ đặc trưng vóc dáng/quần áo và duy trì ID liên tục khi khách đi khuất sau người khác hoặc quay lưng lại; ngưỡng đặc trưng ngoại quan `appearance_thresh: 0.25`.
 - **Nguồn hình:** webcam laptop `0`, webcam USB `1`/`2`, điện thoại `phone:<IP>` (IP Webcam) / `droidcam:<IP>`, `rtsp://...`, tệp video — `camera_backend.resolve_source`; webcam xin 1280x720 (`--cam-res`); luồng mạng mở bằng FFmpeg. Dò camera: `tools/tim_camera.py`. Hướng dẫn: `docs/CAMERA_NGOAI.md`.
 - **Đọc khung mới nhất:** `camera_backend.LatestFrameReader` (luồng `camera-reader`, bỏ khung cũ → hết trễ hình). Chỉ dùng cho webcam / RTSP, không dùng cho tệp video.
-- **Mạng chạy nền:** `camera_bridge.Net` — hàng đợi gửi (`_sender`) + luồng đọc trạng thái / ngưỡng (`_poller`). Mất mạng không làm chậm camera; thanh trên hiện "MẤT KẾT NỐI SERVER".
+- **Mạng chạy nền:** `camera_bridge.Net` — hàng đợi gửi (`_sender`) + luồng đọc trạng thái / ngưỡng (`_poller`) + luồng streaming (`_streamer`). Mất mạng không làm chậm camera; thanh trên hiện "MẤT KẾT NỐI SERVER".
 - **Thu nhỏ khung:** `--max-width` (mặc định 1280).
 - **Chữ tiếng Việt:** `camera_ui.TextLayer.render` vẽ từng ô nhỏ bằng Pillow.
 - **HUD:** `draw_hud` — camera, trên cầu x/sức chứa, mức, lượt hôm nay, vào/ra của camera này, mặt tiền, khung/giây, `AI xx ms/khung` hoặc trạng thái nhận diện, gợi ý phím, dải đỏ "QUÁ TẢI" khi Đỏ.
 - **Mất tín hiệu:** đọc khung lỗi → `CAMERA_LOST`, thử mở lại mỗi 3 giây → `CAMERA_RESTORED`.
 - **Nhịp tim:** mỗi 5 giây `POST /bridge/heartbeat` (nguồn, fps, vạch, tên máy, có gửi cảnh báo, có nhận diện). Quá 30 giây không có → coi là mất (`bridge.OFFLINE_AFTER_SEC`).
 - **Lỗi OpenCV 5 / bản headless:** `OPENCV_FIX_MSG` in cách sửa.
-- **Web:** **Camera** (`frontend/views/camera.py`), tự cập nhật 5 giây.
+- **Web:** **Camera** (`frontend/views/camera.py`), tab Xem Trực Tiếp và tab Cấu hình & Trạng thái, tự cập nhật 5 giây.
 
 ### 5.9 Tổng quan thời gian thực (M6 · F5.1)
 - **Trang:** `frontend/views/tong_quan.py` (fragment 2 giây): sơ đồ cầu (`common.bridge_svg`, chấm = người), mức cảnh báo, sức chứa, tốc độ vào/ra 5 phút, dự kiến bao lâu đầy, thời gian chờ, diễn biến 60 phút, dự báo lượt vào trong ngày, nhận định tự động, sự cố đang mở, camera.
@@ -471,7 +479,7 @@ Menu theo vai trò (`frontend/app.py::PAGES`):
 | Tệp | Bảng định nghĩa ở đây | Hàm / endpoint |
 |---|---|---|
 | `accounts.py` | (User, AuthToken, AuditLog ở models.py) | `ensure_default_admin`, `login`, `logout`, `me`, `change_password`, `list_users`, `create_user`, `update_user`, `audit_log`; `TOKEN_HOURS = 12` |
-| `bridge.py` | `BridgeState`, `BridgeCrossing`, `CameraStatus` | `record_crossing`, `heartbeat`, `cameras`, `bridge_state`, `reset_bridge`, `bridge_stats`; `_get_bridge_state`, `_roll_day`, `_state_json`, `_LOCK`, `OFFLINE_AFTER_SEC = 30` |
+| `bridge.py` | `BridgeState`, `BridgeCrossing`, `CameraStatus` | `record_crossing`, `heartbeat`, `cameras`, `bridge_state`, `reset_bridge`, `bridge_stats`, `upload_stream_frame`, `stream_snapshot`, `live_stream`; `_get_bridge_state`, `_roll_day`, `_state_json`, `_LOCK`, `_LATEST_FRAMES`, `OFFLINE_AFTER_SEC = 30` |
 | `counting.py` | `FacadePass` | `person_entry`, `person_exit` (API cũ `/entry` `/exit`), `create_occupancy`, `occupancy_stats`, `current_stats`, `occupancy_history`, `facade_pass`, `facade_stats` |
 | `alerts.py` | `Incident` | `EVENT_LABELS`, `TOPIC_OF`, `ALWAYS_NOTIFY`, `NOTIFY_IN_HOURS`, `buttons`, `_close`, `create_system_event`, `list_system_events`, `list_incidents`, `ack_incident`, `acknowledge`, `close_incident`, `mark_false_alarm` |
 | `demographics.py` | (VisitEvent, RegionStat ở models.py) | `AGE_ORDER`, `ORIGINS`, `create_visit_event`, `list_visit_events` (lọc giới tính / tuổi / nguồn / ngày), `summarize_visits` (bỏ "không xác định" khỏi tỷ lệ), `demographics_summary`, `bump_region_stat`, `region_stats` |
@@ -503,7 +511,7 @@ Menu theo vai trò (`frontend/app.py::PAGES`):
 | `views/co_cau_khach.py` | Chọn ngày; KPI; biểu đồ giới tính, nhóm tuổi, nguồn khách, theo giờ |
 | `views/lich_su.py` | Lọc theo ngày / giới tính / nhóm tuổi / nguồn khách; bảng hồ sơ; KPI |
 | `views/bao_cao.py` | Mục 5.16: chọn kỳ Ngày / Tuần / Tháng / Năm / Tùy chọn, tùy chỉnh và lập PDF, Excel, KPI, biểu đồ, biểu đồ nhiệt, báo cáo tuần, báo cáo ngày |
-| `views/camera.py` | Thẻ 2 camera: trạng thái, fps, máy, nguồn, vạch, gửi cảnh báo, nhận diện, chạy từ |
+| `views/camera.py` | Tab Xem Trực Tiếp (luồng Live Stream MJPEG 2 camera, fallback snapshot) và Tab Cấu Hình & Trạng Thái (thẻ 2 camera: trạng thái, fps, máy, nguồn, vạch, gửi cảnh báo, nhận diện, chạy từ) |
 | `views/cau_hinh.py` | Mục 5.18 |
 | `views/nguoi_nhan.py` | Mục 5.14 |
 | `views/tai_khoan.py` | Tạo tài khoản, đổi vai trò, khóa / mở, đặt lại mật khẩu |
@@ -513,7 +521,7 @@ Menu theo vai trò (`frontend/app.py::PAGES`):
 ### 6.5 ai_engine/
 | Tệp | Thành phần chính |
 |---|---|
-| `camera_bridge.py` | Hằng: `API_BASE`, `STATE_POLL_SEC=1`, `CONFIG_POLL_SEC=15`, `REPORT_SEC=2`, `HEARTBEAT_SEC=5`, `ALERT_REPEAT_SEC=180`, `RECONNECT_SEC=3`, `OPENCV_FIX_MSG`, `MACHINE`, `LEVEL_VI`, `LEVEL_BGR`. Hàm: `_post`, `_get` (gọi HTTP đồng bộ, timeout 2 giây), lớp `Net` (gửi / đọc nền), `_line_path`, `load_line`, `draw_line_setup`, `draw_line_overlay`, `draw_hud`, `parse_args`, `main` (mở camera `open_src`, nạp DeepFace, tạo `VisitorProfiler`, vòng lặp: đọc khung → thu nhỏ → YOLO track → từng người: vạch / mặt tiền / nhóm / hồ sơ → gửi sự kiện → HUD → phím) |
+| `camera_bridge.py` | Hằng: `API_BASE`, `STATE_POLL_SEC=1`, `CONFIG_POLL_SEC=15`, `REPORT_SEC=2`, `HEARTBEAT_SEC=5`, `ALERT_REPEAT_SEC=180`, `RECONNECT_SEC=3`, `OPENCV_FIX_MSG`, `MACHINE`, `LEVEL_VI`, `LEVEL_BGR`. Hàm: `_post`, `_post_bytes`, `_get` (gọi HTTP đồng bộ, timeout 2 giây), lớp `Net` (gửi / đọc nền + luồng phát live stream `_streamer`, `send_stream_frame`), `_line_path`, `load_line`, `draw_line_setup`, `draw_line_overlay`, `draw_hud`, `parse_args` (hỗ trợ cờ `--no-stream`), `main` (mở camera `open_src`, nạp bộ nhận diện, tạo `VisitorProfiler`, vòng lặp: đọc khung → thu nhỏ → YOLO BoT-SORT ReID track → từng người: vạch / mặt tiền / nhóm / hồ sơ → gửi sự kiện & live stream JPEG → HUD → phím) |
 | `camera_backend.py` | `_pick_backend_for_platform` (Windows `CAP_DSHOW`, Linux `CAP_V4L2`, macOS `CAP_AVFOUNDATION`), `PHONE_APPS`, `resolve_source` (gõ tắt `phone:`/`droidcam:`/IP), `is_network_source`, `open_camera` (webcam xin 1280x720; luồng mạng dùng `CAP_FFMPEG`), `LatestFrameReader`, `parse_camera_source` (cho camera cũ) |
 | `camera_ui.py` | `draw_person_box`, `draw_info_panel`, `draw_status_bar`, `draw_capacity_banner`, `draw_gate_banner`, `draw_countdown`, font `_FONT_CANDIDATES`, `vietnamese_text_supported`, `TextLayer` (`text`, `measure`, `render`), `panel_lines` |
 | `line_crossing.py` | `LineCrossingCounter` (`p1`, `p2`, `bridge_point`, `signed_distance`, `update`, `save`, `load`), `foot_point`, `FacadeCounter` (`update`, `mark_crossed`, `collect`) |
@@ -555,6 +563,9 @@ Quyền: **cam** = header `X-API-Key` (chỉ khi máy chủ đặt `SMARTCAU_API
 | POST /bridge/heartbeat | bridge.py::heartbeat | cam | camera_bridge.py |
 | GET /bridge/state | bridge.py::bridge_state | — | camera, luot_qua_cau.py |
 | GET /bridge/cameras | bridge.py::cameras | — | camera.py, tong_quan.py, messages.py |
+| POST /bridge/stream_frame/{camera_id} | bridge.py::upload_stream_frame | cam | camera_bridge.py |
+| GET /bridge/stream_snapshot/{camera_id} | bridge.py::stream_snapshot | — | web, trình duyệt |
+| GET /bridge/stream/{camera_id} | bridge.py::live_stream | — | web (MJPEG), trình duyệt |
 | POST /bridge/reset | bridge.py::reset_bridge | manager | luot_qua_cau.py |
 | GET /bridge/stats | bridge.py::bridge_stats | — | luot_qua_cau.py |
 | POST /entry · /exit | counting.py | cam | camera cũ |

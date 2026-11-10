@@ -68,12 +68,16 @@ Mã yêu cầu vẫn được ghi ở phần đầu mỗi tệp `frontend/views/
 | Cảnh báo sai | O5 | Sự cố người trực đánh dấu "Báo sai" ở trang Trực ca & sự cố, mục tiêu ≤ 5% |
 | Chênh lệch vé | O8 | Chỉ tính những ngày đã nhập số cuống vé |
 
-## Camera (cách chạy camera — đã gỡ khỏi trang Camera)
-Trên **máy đặt camera** (có thể khác máy chủ, cùng mạng), mở cửa sổ lệnh tại thư mục dự án:
+## Camera (Giám sát trực tiếp & Cấu hình camera)
+- Giao diện **Camera** (`frontend/views/camera.py`) tích hợp 2 tab:
+  - **Xem Trực Tiếp (Live Stream):** Truyền trực tiếp hình ảnh (luồng MJPEG thời gian thực `http://<IP máy chủ>:8000/bridge/stream/{camera_id}`) cùng lớp vẽ vạch kẻ, khung nhận diện, HUD thông số tức thời. Cho phép xem nhanh cả 2 đầu cầu tập trung trên Web hoặc phóng to, lấy ảnh snapshot tức thời.
+  - **Cấu Hình & Tình Trạng Thiết Bị:** Giám sát nhịp tim (tự cập nhật 5 giây/lần), trạng thái Online/Offline, FPS, nguồn hình, tình trạng vạch kẻ.
+- Trên **máy đặt camera** (có thể khác máy chủ, cùng mạng), mở cửa sổ lệnh tại thư mục dự án:
 ```
 python ai_engine/camera_bridge.py --camera-id 1 --source 0 --api http://<IP máy chủ>:8000
 python ai_engine/camera_bridge.py --camera-id 2 --source 0 --api http://<IP máy chủ>:8000
 ```
+- Mặc định camera **tự động phát live stream** lên máy chủ. Nếu muốn tắt stream để tiết kiệm băng thông mạng, thêm cờ `--no-stream`.
 - Nhận diện giới tính / tuổi / nguồn khách **bật sẵn**. Thêm `--no-demographics` để chỉ đếm người. Lệnh cũ có `--demographics` vẫn chạy được.
 - `--source` nhận số webcam (0, 1…), đường dẫn tệp video hoặc địa chỉ RTSP của camera IP.
 - Trên cửa sổ camera: **L** (hoặc chuột phải) để kẻ lại vạch (click 2 đầu vạch rồi click 1 điểm ở phía cầu), **R** về vạch mặc định, **Q** để thoát.

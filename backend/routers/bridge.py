@@ -28,11 +28,13 @@ So onbridge duoc dong bo vao occupancy_state -> GET /stats/occupancy,
 """
 
 import threading
+import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.orm import Session
@@ -129,6 +131,54 @@ def _state_json(st: BridgeState) -> dict:
             "dem": st.dem, "date": st.dem_date}
 
 
+# ------------------------------------------------------------------ Live Stream Buffer
+# Luu frame JPEG moi nhat cua moi camera de phat truc tiep len web
+_LATEST_FRAMES: dict[int, bytes] = {}
+_FRAME_LOCK = threading.Lock()
+
+
+@router.post("/stream_frame/{camera_id}", dependencies=[Depends(require_api_key)])
+async def upload_stream_frame(camera_id: int, request: Request):
+    """Camera bridge gui frame JPEG len server de phat live stream (F1.5)."""
+    if camera_id not in CAMERA_IDS:
+        raise HTTPException(status_code=400, detail="camera_id phải là 1 hoặc 2.")
+    body = await request.body()
+    if body:
+        with _FRAME_LOCK:
+            _LATEST_FRAMES[camera_id] = body
+    return {"ok": True}
+
+
+@router.get("/stream_snapshot/{camera_id}")
+def stream_snapshot(camera_id: int):
+    """Lay 1 anh JPEG moi nhat cua camera (cho polling / snapshot tren web)."""
+    if camera_id not in CAMERA_IDS:
+        raise HTTPException(status_code=400, detail="camera_id phải là 1 hoặc 2.")
+    with _FRAME_LOCK:
+        frame = _LATEST_FRAMES.get(camera_id)
+    if not frame:
+        raise HTTPException(status_code=404, detail="Chưa có khung hình từ camera này.")
+    return Response(content=frame, media_type="image/jpeg")
+
+
+@router.get("/stream/{camera_id}")
+def live_stream(camera_id: int):
+    """Phat live stream MJPEG lien tuc cho trinh duyet / web Streamlit."""
+    if camera_id not in CAMERA_IDS:
+        raise HTTPException(status_code=400, detail="camera_id phải là 1 hoặc 2.")
+
+    def gen():
+        while True:
+            with _FRAME_LOCK:
+                frame = _LATEST_FRAMES.get(camera_id)
+            if frame:
+                yield (b"--frame\r\n"
+                       b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
+            time.sleep(0.08)  # ~12-15 fps
+
+    return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
 # ------------------------------------------------------------------ endpoint
 @router.post("/crossing", dependencies=[Depends(require_api_key)])
 def record_crossing(ev: CrossingIn, db: Session = Depends(get_db)):
@@ -193,16 +243,18 @@ def cameras(db: Session = Depends(get_db)):
     now = datetime.utcnow()
     out = []
     for cid in CAMERA_IDS:
+        has_stream = (cid in _LATEST_FRAMES)
         r = rows.get(cid)
         if r is None:
             out.append({"camera_id": cid, "online": False, "last_seen": None, "source": "", "fps": 0,
-                        "line": "", "sends_alerts": False, "demographics": False, "started_at": None, "machine": ""})
+                        "line": "", "sends_alerts": False, "demographics": False, "started_at": None, "machine": "",
+                        "has_stream": has_stream})
             continue
         out.append({"camera_id": cid, "online": (now - r.last_seen).total_seconds() <= OFFLINE_AFTER_SEC,
                     "last_seen": iso(r.last_seen), "seconds_ago": int((now - r.last_seen).total_seconds()),
                     "source": r.source, "fps": r.fps, "line": r.line, "sends_alerts": bool(r.sends_alerts),
                     "demographics": bool(r.demographics), "started_at": iso(r.started_at),
-                    "machine": r.machine or ""})
+                    "machine": r.machine or "", "has_stream": has_stream})
     return out
 
 

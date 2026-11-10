@@ -200,6 +200,31 @@ def test_camera_heartbeat():
     assert cams[1]["machine"] == "LAPTOP-HOAN" and cams[2]["machine"] == ""
 
 
+def test_camera_stream_endpoints():
+    dummy_frame = b"\xff\xd8\xff\xe0dummy_jpeg_stream_data\xff\xd9"
+    # Upload frame cho Camera 1
+    r = client.post("/bridge/stream_frame/1", content=dummy_frame, headers={"Content-Type": "image/jpeg"})
+    assert r.status_code == 200 and r.json().get("ok") is True
+
+    # Kiem tra snapshot camera 1
+    snap = client.get("/bridge/stream_snapshot/1")
+    assert snap.status_code == 200
+    assert snap.headers["content-type"] == "image/jpeg"
+    assert snap.content == dummy_frame
+
+    # Kiem tra /bridge/cameras co has_stream
+    cams = {c["camera_id"]: c for c in client.get("/bridge/cameras").json()}
+    assert cams[1]["has_stream"] is True
+    assert cams[2]["has_stream"] is False
+
+    # Camera 2 chua co frame -> snapshot 404
+    assert client.get("/bridge/stream_snapshot/2").status_code == 404
+
+    # Camera ID khong hop le -> 400
+    assert client.post("/bridge/stream_frame/3", content=dummy_frame).status_code == 400
+    assert client.get("/bridge/stream_snapshot/3").status_code == 400
+
+
 def test_facade_and_current_stats():
     client.post("/facade_pass", json={"camera_id": 1})
     client.post("/facade_pass", json={"camera_id": 2, "count": 2})

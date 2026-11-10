@@ -115,6 +115,15 @@ def _post(path, payload):
     return None
 
 
+def _post_bytes(path, data, content_type="image/jpeg"):
+    try:
+        h = dict(_HEADERS)
+        h["Content-Type"] = content_type
+        requests.post(f"{API_BASE}{path}", data=data, headers=h, timeout=1.5)
+    except requests.RequestException:
+        pass
+
+
 def _get(path):
     try:
         r = requests.get(f"{API_BASE}{path}", timeout=2)
@@ -128,15 +137,21 @@ def _get(path):
 class Net:
     """Moi lan gui / doc may chu chay o luong nen, vong lap camera khong bao gio phai cho mang.
     - post(): xep hang roi gui lan luot (day hang thi bo ban tin cu nhat).
+    - send_stream_frame(): cap nhat khung hinh live moi nhat de stream ve web.
     - Luong doc: moi STATE_POLL_SEC doc /bridge/state, moi CONFIG_POLL_SEC doc nguong /config."""
 
-    def __init__(self):
+    def __init__(self, enable_stream=True):
         self.q = queue.Queue(maxsize=300)
         self.state = None
         self.alert_threshold = None
         self.ok = True
+        self.enable_stream = enable_stream
+        self._stream_frames = {}
+        self._stream_lock = threading.Lock()
         threading.Thread(target=self._sender, daemon=True, name="net-send").start()
         threading.Thread(target=self._poller, daemon=True, name="net-poll").start()
+        if self.enable_stream:
+            threading.Thread(target=self._streamer, daemon=True, name="net-stream").start()
 
     def post(self, path, payload):
         try:
@@ -147,6 +162,23 @@ class Net:
             except queue.Empty:
                 pass
             self.q.put_nowait((path, payload))
+
+    def send_stream_frame(self, camera_id: int, jpeg_bytes: bytes):
+        if not self.enable_stream:
+            return
+        with self._stream_lock:
+            self._stream_frames[camera_id] = jpeg_bytes
+
+    def _streamer(self):
+        while True:
+            time.sleep(0.08)  # ~12 FPS
+            to_send = {}
+            with self._stream_lock:
+                if self._stream_frames:
+                    to_send = dict(self._stream_frames)
+                    self._stream_frames.clear()
+            for cam_id, data in to_send.items():
+                _post_bytes(f"/bridge/stream_frame/{cam_id}", data)
 
     def _sender(self):
         while True:
@@ -337,8 +369,11 @@ def parse_args(argv=None):
                     help="Bo tim khuon mat cua DeepFace. retinaface chinh xac nhat nhung cham nhat")
     ap.add_argument("--no-face-gate", action="store_true",
                     help="Tat cong chat luong mat (mac dinh chi phan tich khi mat du to, nhin thang, khong nhoe)")
+    ap.add_argument("--no-stream", action="store_true",
+                    help="Tat live stream khung hinh truc tiep len Web Streamlit qua may chu")
     args = ap.parse_args(argv)
     args.demographics = not args.no_demographics
+    args.stream = not args.no_stream
     if args.model is None:
         args.model = "yolov8n-pose.pt" if args.demographics else "yolov8n.pt"
     args.source = resolve_source(args.source)
@@ -395,7 +430,7 @@ def main():
             ai_status = ""
             print(f"[CAMERA {cam}] Nhận diện giới tính, tuổi ({backend_name}){'' if args.no_origin else ', trong nước/châu Á - quốc tế'}: BẬT.")
 
-    net = Net()
+    net = Net(enable_stream=args.stream)
     if args.demographics and not ai_status:
         profiler = VisitorProfiler(post=net.post, with_origin=not args.no_origin, camera_id=cam,
                                    quality_gate=not args.no_face_gate)
@@ -438,6 +473,7 @@ def main():
     prev_level = "OK"
     fps, frames, fps_t0 = 0.0, 0, time.time()
     ai_ms = 0.0
+    last_stream = 0.0
     layer = TextLayer()
     source_label = str(args.source) if not isinstance(args.source, str) or "@" not in args.source \
         else args.source.split("@")[-1]
@@ -589,6 +625,18 @@ def main():
                                                     + (f" · mặt {profiler.engine.avg_ms:.0f} ms"
                                                        if profiler is not None and getattr(profiler.engine, "avg_ms", 0) else "")))
         layer.render(out)
+        if args.stream and (now - last_stream >= 0.08):
+            # Gui khung hinh nen JPEG qua luong nen de stream ve Web Streamlit (max rong 960px)
+            sh, sw = out.shape[:2]
+            s_out = out
+            if sw > 960:
+                s_scale = 960.0 / sw
+                s_out = cv2.resize(out, (960, int(sh * s_scale)), interpolation=cv2.INTER_AREA)
+            ok_enc, buf = cv2.imencode('.jpg', s_out, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+            if ok_enc:
+                net.send_stream_frame(cam, buf.tobytes())
+            last_stream = now
+
         cv2.imshow(window, out)
         key = cv2.waitKey(1) & 0xFF
         if key in (ord("q"), ord("Q"), 27):

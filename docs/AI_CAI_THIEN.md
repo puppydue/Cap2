@@ -23,7 +23,10 @@ Tài liệu này rà soát toàn bộ chuỗi xử lý AI, chỉ ra điểm yế
    Hệ số được lưu ở `ai_engine/calibration/age_calibration.json`. Sau khi học, đo lại trên **tập ảnh khác** để có số nghiệm thu trung thực.
 3. **Chọn bộ tìm mặt** `--face-detector retinaface`: chính xác hơn YuNet với mặt nghiêng, nhỏ, nhưng chậm hơn vài lần.
 4. **Phát hiện người tốt hơn**: thêm `--imgsz 960` (hoặc 1280) và `--model yolov8s.pt` / `yolo11s.pt` (bản pose: `yolov8s-pose.pt`).
-5. **Bộ theo dõi chỉnh riêng cho dòng người đi bộ** (`ai_engine/trackers/smartcau_botsort.yaml`): giữ ID tới khoảng 4 giây khi bị che, ngưỡng tạo ID mới cao hơn để giảm ID ảo. Đây là cấu hình mặc định.
+5. **Bộ theo dõi chống "Nhảy ID" bằng ReID** (`ai_engine/trackers/smartcau_botsort.yaml`):
+   - Kích hoạt **ReID** (`with_reid: true`) kết hợp đặc trưng hình dạng/quần áo (`model: auto` trích xuất trực tiếp từ backbone detector) với khoảng cách chuyển động (Kalman Filter).
+   - Tăng `track_buffer: 90` (~6 giây ở 15 khung hình/giây) giúp duy trì ID khi khách đi khuất sau người khác hoặc quay lưng lại.
+   - Ngưỡng đặc trưng `appearance_thresh: 0.25` kết hợp lọc nhiễu ID ảo.
 6. **Bỏ phiếu theo thời gian** (có từ trước): nhiều khung hình, cần ≥ 70% đồng thuận; dưới mức đó ghi "Không xác định" (BRULE-06).
 
 ### Cấu hình khuyến nghị theo máy
