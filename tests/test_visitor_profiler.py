@@ -129,7 +129,7 @@ def test_analyze_interval_limits_deepface_calls():
 def test_pending_label():
     p, _ = make(FakeEngine(ready_after=5))
     p.observe(7, FRAME, BOX, 0)
-    assert p.label(7) == ["ID 7", "Đang nhận diện 1/4"]
+    assert p.label(7) == ["ID 7", "Đang nhận diện 1/3"]
 
 
 def test_face_quality_gate():

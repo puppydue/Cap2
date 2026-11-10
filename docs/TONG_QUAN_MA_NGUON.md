@@ -218,7 +218,7 @@ Cap2/
 │   ├── age_gender_estimator.py   gọi DeepFace, lọc kết quả giả, hiệu chỉnh tuổi
 │   ├── region_mapping.py         nhóm chủng tộc DeepFace → nhóm khu vực
 │   ├── telegram_alert.py         trigger_buzzer_signal (còi ngoài) + gửi Telegram kiểu cũ
-│   ├── trackers/smartcau_botsort.yaml  cấu hình BoT-SORT tối ưu chống nhảy ID (track_buffer: 30)
+│   ├── trackers/smartcau_botsort.yaml  cấu hình BoT-SORT
 │   ├── camera_in.py, camera_out.py     camera kiểu CŨ (1 camera vào, 1 camera ra) — không dùng nữa, giữ tham khảo
 ├── tools/                        CÔNG CỤ
 │   ├── kiem_tra_mang.py          kiểm tra kết nối nhiều máy
@@ -279,13 +279,10 @@ Mỗi chức năng ghi: **làm gì → quy tắc → tệp code → API → bả
 - **CSDL:** `incidents`, `system_events`.
 
 ### 5.6 Nhận diện giới tính, tuổi, nguồn khách (M1 · F3.2)
-- **Luồng:** `VisitorProfiler.observe` (mỗi 0,3 giây / người; đã chốt kết quả thì 1,5 giây) → `face_quality` (mắt đủ to ≥18 px, nhìn thẳng, không nhòe ≥45) → `AsyncEngine.update` (đẩy việc sang luồng nền `deepface`, đo `avg_ms`) → `DemographicsEngine.update`:
-  - **Đường nhanh (mặc định với model pose):**
-    - Nếu dùng **InsightFace** (mặc định): `age_gender_estimator.align_face_for_insightface` cắt & xoay khuôn mặt chuẩn 96×96 (trường nhìn rộng hơn với `eye_span=0.26`, `eye_y=0.40`) → `_predict_genderage_insightface` suy luận qua ONNX Runtime (~4 ms/mặt, độ chính xác cao cho người Châu Á).
-    - Nếu dùng **DeepFace**: `align_face_from_keypoints` cắt 224×224 → `estimate_from_aligned_face` gọi DeepFace `skip`.
-    - Cả 2 đều hỗ trợ TTA (lật gương lấy trung bình khi độ tin cậy < 85%).
+- **Luồng:** `VisitorProfiler.observe` (mỗi 0,3 giây / người; đã chốt kết quả thì 1,5 giây) → `face_quality` (mắt đủ to ≥14 px, nhìn thẳng, không nhòe ≥35) → `AsyncEngine.update` (đẩy việc sang luồng nền `deepface`, đo `avg_ms`) → `DemographicsEngine.update`:
+  - **Đường nhanh (mặc định với model pose):** `align_face_from_keypoints` cắt & xoay khuôn mặt 224×224 → `estimate_from_aligned_face` gọi DeepFace `skip` (có TTA: lật gương lấy trung bình khi độ tin cậy < 85%).
   - **Đường dự phòng** (model không có keypoint): `estimate_demographics_from_person_box` (DeepFace tự tìm mặt trong khung người).
-  - `TemporalVoter` bỏ phiếu nhiều khung (≥4 phiếu, tỷ lệ ≥75%, cửa sổ 8 phiếu gần nhất). **Trọng số phiếu = (độ chắc − 50%) / 50%**: phiếu 55% gần như không tính, phiếu 99% tính gần đủ.
+  - `TemporalVoter` bỏ phiếu nhiều khung (≥3 phiếu, tỷ lệ ≥70%, cửa sổ 6 phiếu gần nhất). **Trọng số phiếu = (độ chắc − 50%) / 50%**: phiếu 55% gần như không tính, phiếu 99% tính gần đủ.
   - Ước lượng chủng tộc (`race`, cho nguồn khách) chỉ chạy tới khi đủ `RACE_VOTES = 4` lần cho mỗi người, sau đó chỉ chạy tuổi + giới tính → nhanh hơn.
   - HUD hiện `mặt xx ms` = thời gian trung bình một lần phân tích mặt.
 - **Nguồn khách:** DeepFace `race` → `region_mapping.classify_region_from_deepface_race` → `REGION_TO_ORIGIN` ("Dong A / Noi dia" → `Trong nuoc`, còn lại → `Nuoc ngoai`); phải chiếm ≥55% phiếu (`ORIGIN_MIN_SHARE`).
@@ -304,16 +301,13 @@ Mỗi chức năng ghi: **làm gì → quy tắc → tệp code → API → bả
 - **Tệp:** `ai_engine/line_crossing.py`, `ai_engine/group_detector.py`, `ai_engine/camera_bridge.py`, `backend/routers/counting.py::facade_pass, facade_stats`.
 - **Test:** `tests/test_group_facade.py`.
 
-### 5.8 Camera: Live Stream trực tiếp, chống nhảy ID (ReID), nhịp tim và mất tín hiệu (NFR-03)
+### 5.8 Camera: Live Stream trực tiếp lên Web, nhịp tim và mất tín hiệu (NFR-03)
 - **Live Stream trực tiếp tập trung (F1.5):**
   - Camera `camera_bridge.py` tự động nén khung hình đã vẽ vạch kẻ và HUD sang định dạng JPEG (chất lượng 65, chiều rộng tối đa 960px để tối ưu băng thông) và đưa vào hàng đợi luồng gửi nền `Net.send_stream_frame`.
   - Khung hình được gửi lên backend qua `POST /bridge/stream_frame/{camera_id}` (~10–12 khung/giây). Tắt truyền luồng bằng cờ `--no-stream`.
   - Backend `routers/bridge.py` phát luồng liên tục dạng MJPEG tại `GET /bridge/stream/{camera_id}` và cung cấp ảnh chụp tức thời `GET /bridge/stream_snapshot/{camera_id}`.
   - Web Streamlit `frontend/views/camera.py` tích hợp tab **Xem Trực Tiếp (Live Stream)** hiển thị video 2 đầu cầu tập trung, tự động chuyển sang snapshot dự phòng nếu luồng bị ngắt.
-- **Bộ theo dõi tối ưu chống dính/nhảy ID:**
-  - Tệp cấu hình `ai_engine/trackers/smartcau_botsort.yaml` đặt `track_buffer: 30` (~2 giây ở 15 khung hình/giây) và `new_track_thresh: 0.45`: giải phóng track ID hợp lý khi khách đi qua vạch hoặc khuất hẳn, ngăn chặn triệt để việc giữ ID ma quá lâu làm gán nhầm ID của người đi trước cho người đi sau (bảo toàn độ chính xác nhận diện giới tính và tuổi).
-  - Tự động dọn dẹp hồ sơ người đã lưu trong `VisitorProfiler` sau 3 giây để sẵn sàng phân tích người mới khi ID được cấp lại.
-  - Cấu hình `DEEPFACE_HOME` lưu weights cục bộ và chuẩn hóa ảnh 224×224 cho mô hình chủng tộc giúp nhận diện nguồn khách (Trong nước / Quốc tế) ổn định, không bị lỗi cấp quyền.
+- **Bộ theo dõi người:** cấu hình `ai_engine/trackers/smartcau_botsort.yaml` (BoT-SORT chuẩn `track_buffer: 60`, `with_reid: false`, `model: auto`).
 - **Nguồn hình:** webcam laptop `0`, webcam USB `1`/`2`, điện thoại `phone:<IP>` (IP Webcam) / `droidcam:<IP>`, `rtsp://...`, tệp video — `camera_backend.resolve_source`; webcam xin 1280x720 (`--cam-res`); luồng mạng mở bằng FFmpeg. Dò camera: `tools/tim_camera.py`. Hướng dẫn: `docs/CAMERA_NGOAI.md`.
 - **Đọc khung mới nhất:** `camera_backend.LatestFrameReader` (luồng `camera-reader`, bỏ khung cũ → hết trễ hình). Chỉ dùng cho webcam / RTSP, không dùng cho tệp video.
 - **Mạng chạy nền:** `camera_bridge.Net` — hàng đợi gửi (`_sender`) + luồng đọc trạng thái / ngưỡng (`_poller`) + luồng streaming (`_streamer`). Mất mạng không làm chậm camera; thanh trên hiện "MẤT KẾT NỐI SERVER".

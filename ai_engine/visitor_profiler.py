@@ -37,9 +37,9 @@ ORIGIN_MIN_SHARE = 0.55   # nhom khu vuc phai chiem >= 55% trong so phieu moi ke
 # Chi dua khung hinh vao DeepFace khi mat DU TO, NHIN GAN THANG, KHONG NHOE.
 # Khung hinh xau (nghieng, xa, mo do chuyen dong) la nguon chinh gay doan sai
 # gioi tinh / tuoi; bo qua chung lam phieu bau sach hon (xem docs/AI_CAI_THIEN.md).
-MIN_EYE_PX = 18          # khoang cach 2 mat toi thieu (px) ~ mat rong >= 45-50 px (tang tu 14 -> 18)
-MIN_SHARPNESS = 45.0     # phuong sai Laplacian vung dau; thap = nhoe (tang tu 35 -> 45)
-MIN_BOX_H = 130          # khi khong co keypoint: khung nguoi toi thieu (px) (tang tu 110 -> 130)
+MIN_EYE_PX = 14          # khoang cach 2 mat toi thieu (px) ~ mat rong >= 35 px
+MIN_SHARPNESS = 35.0     # phuong sai Laplacian vung dau; thap = nhoe
+MIN_BOX_H = 110          # khi khong co keypoint (model khong phai pose): khung nguoi toi thieu (px)
 _NOSE, _LEYE, _REYE = 0, 1, 2
 
 
@@ -237,11 +237,9 @@ class VisitorProfiler:
             if t.entered_at is not None and not t.done:
                 if now - t.entered_at >= self.give_up_sec or now - t.last_seen >= self.gone_sec:
                     self._save_unknown(tid, t)
-            # Da luu xong ma vang mat > 3 giay -> giai phong som de tranh gan nham sang nguoi moi
-            max_linger = 3.0 if t.done else self.forget_sec
-            if now - t.last_seen > max_linger:
+            if now - t.last_seen > self.forget_sec:
                 self.engine.forget(tid)
-                self._tracks.pop(tid, None)
+                del self._tracks[tid]
 
     # ---------------------------------------------------------- ket qua
     def origin_of(self, tid: int) -> Optional[str]:
@@ -272,7 +270,7 @@ class VisitorProfiler:
         if t.last_reject and not t.done:
             return [head, QUALITY_HINT.get(t.last_reject, "Chờ thấy rõ mặt")]
         if t.info is not None and not t.done:
-            return [head, f"Đang nhận diện {min(t.info.get('n_votes', 0), 4)}/4"]
+            return [head, f"Đang nhận diện {min(t.info.get('n_votes', 0), 3)}/3"]
         if not t.done:
             return [head, "Đang nhận diện…"]
         return None

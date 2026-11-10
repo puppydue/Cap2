@@ -419,16 +419,15 @@ def main():
     if args.demographics:
         import age_gender_estimator
         age_gender_estimator.DEFAULT_DETECTOR = args.face_detector
-        backend_name = "InsightFace (buffalo_s ONNX)" if age_gender_estimator.DEMOGRAPHICS_BACKEND == "insightface" else "DeepFace"
-        print(f"[CAMERA {cam}] Đang khởi tạo bộ nhận diện {backend_name}...")
-        ok_df, _err = age_gender_estimator.demographics_status()
+        print(f"[CAMERA {cam}] Đang nạp DeepFace (lần đầu có thể mất 10–30 giây)...")
+        ok_df, _err = age_gender_estimator.deepface_status()
         if not ok_df:
-            print(f"[CAMERA {cam}] Không nạp được bộ nhận diện ({backend_name}) -> camera vẫn ĐẾM người bình thường "
-                  "nhưng KHÔNG nhận diện giới tính / tuổi.")
-            ai_status = "Nhận diện: LỖI (xem cửa sổ lệnh)"
+            print(f"[CAMERA {cam}] DeepFace lỗi -> camera vẫn ĐẾM người bình thường nhưng KHÔNG nhận diện "
+                  "giới tính / tuổi. Sửa theo hướng dẫn ở trên rồi chạy lại.")
+            ai_status = "Nhận diện: LỖI DeepFace (xem cửa sổ lệnh)"
         else:
             ai_status = ""
-            print(f"[CAMERA {cam}] Nhận diện giới tính, tuổi ({backend_name}){'' if args.no_origin else ', trong nước/châu Á - quốc tế'}: BẬT.")
+            print(f"[CAMERA {cam}] Nhận diện giới tính, tuổi{'' if args.no_origin else ', trong nước/châu Á - quốc tế'}: BẬT.")
 
     net = Net(enable_stream=args.stream)
     if args.demographics and not ai_status:

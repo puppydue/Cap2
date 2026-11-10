@@ -1,15 +1,15 @@
 # Bo theo doi nguoi cho camera chan cau (BoT-SORT cua Ultralytics), chinh cho
-# dong nguoi di bo: giu ID hop ly khi bi che khuat ngan (track_buffer = 30) va
-# tranh bi doi/dinh ID ma khi nguoi khac buoc vao.
+# dong nguoi di bo: giu ID lau hon khi bi che khuat ngan (track_buffer) de
+# KHONG dem lap / bo sot khi nguoi di sat nhau.  Dung: --tracker <tep nay>
 tracker_type: botsort
 track_high_thresh: 0.35   # nguong tin cay de khop vong 1 (mac dinh 0.25-0.5)
 track_low_thresh: 0.1     # vong 2 voi khung tin cay thap (nguoi bi che 1 phan)
 new_track_thresh: 0.45    # nguong tao ID moi - cao hon de han che ID ao
-track_buffer: 30          # 30 khung (~2 giay o 15 fps): tranh giu ID cu qua lau lam gan nham nguoi moi
+track_buffer: 60          # giu ID da mat toi 60 khung (~4 giay o 15 fps)
 match_thresh: 0.8
 fuse_score: true
 gmc_method: sparseOptFlow # bu chuyen dong camera (camera rung nhe)
-proximity_thresh: 0.5     # nguong khoang cach khong gian IoU
-appearance_thresh: 0.25   # nguong dac trung ngoai hinh
-with_reid: false          # YOLO pose dung keypoints can chinh mat; de false de tracker khong bi nhiễu embedding rong
-
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+with_reid: false          # bat true neu may manh: dung dac trung ngoai hinh de giu ID tot hon
+model: auto

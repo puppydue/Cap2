@@ -71,9 +71,9 @@ from age_gender_estimator import (align_face_from_keypoints, estimate_demographi
                                   estimate_from_aligned_face)
 from region_mapping import classify_region_from_deepface_race
 
-CONFIDENCE_THRESHOLD = 0.75   # Tang tu 0.70 -> 0.75: chi chot khi do tin cay >= 75%
-VOTE_WINDOW = 8                # Tang tu 6 -> 8: lay cua so 8 phieu gan nhat
-MIN_VOTES_BEFORE_READY = 4     # Tang tu 3 -> 4: can it nhat 4 phieu chat luong tot moi bat dau chot
+CONFIDENCE_THRESHOLD = 0.70   # Phase 2: chi hien ket qua khi do tin cay >= 70%
+VOTE_WINDOW = 6                # so phieu (frame) gan nhat duoc xet cho 1 track_id
+MIN_VOTES_BEFORE_READY = 3     # it nhat 3 phieu moi bat dau xet "san sang"
 RACE_VOTES = 4                 # du 4 lan uoc luong khu vuc thi thoi chay "race" cho nguoi do (nhanh hon)
 _FLIP_MARGIN = 0.15            # ket qua moi phai thang ket qua da chot >= 15% moi duoc doi (smoothing)
 
@@ -321,13 +321,7 @@ class DemographicsEngine:
         KHONG can tu quan ly cache ben ngoai nhu ban cu)."""
         # Race (de uoc luong nguon khach) chi chay toi khi du phieu -> moi lan phan tich nhanh hon
         want_race = self.enable_region and self._race_n.get(track_id, 0) < RACE_VOTES
-        # Neu InsightFace dang hoat dong, uu tien can chinh mat theo chuan 96x96 (truong nhin rong hon) de doan tuoi/gioi tinh chuan xac nhat
-        face = None
-        from age_gender_estimator import DEMOGRAPHICS_BACKEND, align_face_for_insightface
-        if DEMOGRAPHICS_BACKEND == "insightface":
-            face = align_face_for_insightface(frame, keypoints, kp_conf)
-        if face is None:
-            face = align_face_from_keypoints(frame, keypoints, kp_conf)
+        face = align_face_from_keypoints(frame, keypoints, kp_conf)
         if face is not None:            # nhanh: cat mat theo keypoint, khong can tim mat
             info = estimate_from_aligned_face(face, include_race=want_race)
             self.last_path = "keypoint"

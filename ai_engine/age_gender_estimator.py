@@ -221,51 +221,10 @@ def _load_deepface():
               "  Kiểm tra nhanh: python -c \"from deepface import DeepFace; print('OK')\"\n")
         return None
 
-_original_load_deepface_code = _load_deepface.__code__
-
-
-# Backend nhan dien gioi tinh / tuoi: "insightface" (mac dinh, chinh xac cao cho chau A, nhe) hoac "deepface"
-DEMOGRAPHICS_BACKEND = _os.environ.get("SMARTCAU_DEMOGRAPHICS_BACKEND", "insightface")
-
-_INSIGHTFACE_SESSION = None
-_INSIGHTFACE_ERROR = None
-
-def _load_insightface():
-    """Nap model genderage cua InsightFace (chay bang ONNX Runtime - rat nhe, nhanh va chinh xac voi nguoi chau A)."""
-    global _INSIGHTFACE_SESSION, _INSIGHTFACE_ERROR
-    if _INSIGHTFACE_SESSION is not None or _INSIGHTFACE_ERROR is not None:
-        return _INSIGHTFACE_SESSION
-    try:
-        import onnxruntime as ort
-        # Uu tien tim model ngay trong thu muc ai_engine/models/buffalo_s cua du an
-        local_model = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "models", "buffalo_s", "genderage.onnx")
-        user_model = _os.path.expanduser("~/.insightface/models/buffalo_s/genderage.onnx")
-        model_path = local_model if _os.path.exists(local_model) else user_model
-        if not _os.path.exists(model_path):
-            from insightface.app import FaceAnalysis
-            app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
-            app.prepare(ctx_id=0, det_size=(320, 320))
-            model_path = user_model
-        if _os.path.exists(model_path):
-            sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-            _INSIGHTFACE_SESSION = sess
-            return _INSIGHTFACE_SESSION
-    except Exception as e:
-        _INSIGHTFACE_ERROR = e
-        print(f"[CANH BAO] Khong the nap InsightFace ({e}), chuyen sang dung DeepFace.")
-    return None
-
-def demographics_status():
-    """Kiem tra xem he thong AI co san sang nhan dien hay khong (InsightFace hoac DeepFace)."""
-    if DEMOGRAPHICS_BACKEND == "insightface":
-        sess = _load_insightface()
-        if sess is not None:
-            return True, None
-    return _load_deepface() is not None, _DEEPFACE_ERROR
 
 def deepface_status():
-    """Tuong thich nguoc voi camera_bridge.py cu."""
-    return demographics_status()
+    """(san_sang, loi) - de camera_bridge bao ngay luc khoi dong."""
+    return _load_deepface() is not None, _DEEPFACE_ERROR
 
 
 def estimate_age_gender(image_bgr, detector_backend: str = None, include_race: bool = False) -> List[Dict]:
@@ -343,17 +302,6 @@ def estimate_age_gender(image_bgr, detector_backend: str = None, include_race: b
         )
         confidence = gender_probs.get(dominant_gender, 0.0)
         age = calibrate_age(int(r.get("age", -1)))
-        # Neu InsightFace dang bat, dung ket qua tu InsightFace de co do chinh xac vuot troi cho nguoi chau A
-        if DEMOGRAPHICS_BACKEND == "insightface":
-            rx, ry, rw, rh = region.get("x", 0), region.get("y", 0), region.get("w", 0), region.get("h", 0)
-            if rw > 0 and rh > 0:
-                face_crop = image_bgr[max(0, ry):min(img_h, ry + rh), max(0, rx):min(img_w, rx + rw)]
-                if face_crop.size > 0:
-                    if_res = _predict_genderage_insightface(face_crop)
-                    if if_res is not None:
-                        dominant_gender, confidence, age = if_res
-                        age = calibrate_age(age)
-
         out.append({
             "age": age,
             "age_range": age_to_range(age),
@@ -533,33 +481,6 @@ TTA_BELOW = 85.0       # gioi tinh < 85% chac chan -> phan tich them anh lat guo
 _NOSE, _LEYE, _REYE = 0, 1, 2
 
 
-def align_face_for_insightface(frame, keypoints, kp_conf, min_conf: float = 0.5):
-    """Can chinh mat rieng cho InsightFace genderage.onnx (96x96).
-    Mo hinh nay can truong nhin rong hon (bao gom ca tran va cam) voi eye_span ~0.26 va eye_y ~0.40.
-    Tra ve anh 96x96 BGR hoac None neu keypoints khong du tin cay."""
-    import math
-    import cv2
-    import numpy as np
-    if keypoints is None or kp_conf is None or len(keypoints) < 3:
-        return None
-    if min(kp_conf[_NOSE], kp_conf[_LEYE], kp_conf[_REYE]) < min_conf:
-        return None
-    (lx, ly), (rx, ry) = keypoints[_LEYE], keypoints[_REYE]
-    (ax, ay), (bx, by) = sorted([(lx, ly), (rx, ry)])
-    dist = math.hypot(bx - ax, by - ay)
-    if dist < 6:
-        return None
-    angle = math.degrees(math.atan2(by - ay, bx - ax))
-    # Tinh toan ty le chuan cho input 96x96 cua InsightFace genderage
-    scale = (0.26 * 96.0) / dist
-    cx, cy = (ax + bx) / 2.0, (ay + by) / 2.0
-    M = cv2.getRotationMatrix2D((cx, cy), angle, scale)
-    M[0, 2] += 48.0 - cx
-    M[1, 2] += 0.40 * 96.0 - cy
-    face96 = cv2.warpAffine(frame, M, (96, 96), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    return face96 if face96.size and np.isfinite(face96).all() else None
-
-
 def align_face_from_keypoints(frame, keypoints, kp_conf, min_conf: float = 0.5, size: int = FACE_SIZE):
     """Tra ve anh mat da can chinh (size x size, BGR) hoac None neu keypoint mat khong du tin cay.
     1 phep warpAffine duy nhat: xoay (2 mat nam ngang) + cat + phong to."""
@@ -596,98 +517,19 @@ def _analyze_skip(face_bgr, actions):
     return res[0] if isinstance(res, list) else res
 
 
-def _predict_genderage_insightface(face_bgr):
-    """Du doan gioi tinh va tuoi tu anh mat da crop (96x96 hoac 224x224) bang InsightFace genderage.onnx.
-    Tra ve (gender, gender_confidence, age) hoac None neu khong thanh cong."""
-    sess = _load_insightface()
-    if sess is None:
-        return None
-    try:
-        import numpy as np
-        # Mo hinh genderage cua InsightFace duoc train tren ti le chuan (eye_span ~0.26).
-        h_in, w_in = face_bgr.shape[:2]
-        if w_in != 96 or h_in != 96:
-            resized = cv2.resize(face_bgr, (96, 96))
-        else:
-            resized = face_bgr
-        blob = cv2.dnn.blobFromImage(resized, 1.0, (96, 96), (0, 0, 0), swapRB=True)
-        pred = sess.run(None, {sess.get_inputs()[0].name: blob})[0][0]
-        # pred[0:2] la logits [Female, Male]
-        logits = pred[:2]
-        # Tinh softmax de ra confidence %
-        exp_l = np.exp(logits - np.max(logits))
-        probs = exp_l / np.sum(exp_l)
-        is_man = int(np.argmax(logits)) == 1
-        gender = "Man" if is_man else "Woman"
-        conf = float(probs[1] if is_man else probs[0]) * 100.0
-        age = int(round(float(pred[2]) * 100))
-        return gender, conf, age
-    except Exception as e:
-        print(f"[InsightFace error] {e}")
-        return None
-
-
 def estimate_from_aligned_face(face_bgr, include_race: bool = False, tta: bool = True) -> Dict:
     """Phan tich 1 anh mat DA CAN CHINH (khong tim mat lai). Lat guong khi gioi tinh chua chac (TTA).
-    Uu tien dung InsightFace cho gioi tinh / tuoi de dat do chinh xac vuot troi tren nguoi chau A.
     Tra ve cung dang voi estimate_demographics_from_person_box."""
     empty = {"age": None, "age_range": "Khong ro", "gender": None, "gender_confidence": 0.0, "race_probs": None}
     if face_bgr is None:
         return empty
     import cv2
     face = _apply_clahe(face_bgr)
-
-    # Uu tien dung InsightFace neu duoc chon va co san (va khong bi mock DeepFace trong unit test)
-    is_deepface_mocked = hasattr(_load_deepface, "_mock_self") or _load_deepface.__code__ != _original_load_deepface_code
-    if DEMOGRAPHICS_BACKEND == "insightface" and not is_deepface_mocked:
-        if_res = _predict_genderage_insightface(face)
-        if if_res is not None:
-            g, g_conf, age_val = if_res
-            # Test-time augmentation (TTA) khi do chac chan chua cao
-            if tta and g_conf < TTA_BELOW:
-                try:
-                    if_res_flip = _predict_genderage_insightface(cv2.flip(face, 1))
-                    if if_res_flip is not None:
-                        g2, g_conf2, age_val2 = if_res_flip
-                        # Neu 2 ben cung doan 1 gioi tinh thi cong trung binh conf
-                        if g == g2:
-                            g_conf = (g_conf + g_conf2) / 2.0
-                        else:
-                            # Neu lat anh ra ket qua nguoc -> lay phia co conf cao hon
-                            if g_conf2 > g_conf:
-                                g, g_conf = g2, g_conf2
-                        age_val = int(round((age_val + age_val2) / 2.0))
-                except Exception:
-                    pass
-
-            race_probs = None
-            if include_race:
-                # Chi neu nguoi dung bat tuy chon uoc luong vung mien thi moi goi them DeepFace race
-                try:
-                    face_race = face
-                    if face.shape[0] != 224 or face.shape[1] != 224:
-                        face_race = cv2.resize(face, (224, 224), interpolation=cv2.INTER_LINEAR)
-                    r_race = _analyze_skip(face_race, ["race"])
-                    if r_race:
-                        race_probs = r_race.get("race")
-                except Exception:
-                    pass
-
-            calib_age = calibrate_age(age_val)
-            return {
-                "age": calib_age,
-                "age_range": age_to_range(calib_age),
-                "gender": g,
-                "gender_confidence": round(float(g_conf), 1),
-                "race_probs": race_probs,
-            }
-
-    # Fallback ve DeepFace (neu DEMOGRAPHICS_BACKEND != "insightface" hoac InsightFace bi loi)
     actions = ["age", "gender", "race"] if include_race else ["age", "gender"]
     try:
         r = _analyze_skip(face, actions)
     except Exception as e:
-        print(f"Loi khi phan tich tuoi/gioi tinh qua DeepFace: {e}")
+        print(f"Loi khi phan tich tuoi/gioi tinh: {e}")
         return empty
     if r is None:
         return empty
