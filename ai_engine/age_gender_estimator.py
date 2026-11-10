@@ -196,6 +196,10 @@ def _load_deepface():
     if _DEEPFACE is not None or _DEEPFACE_ERROR is not None:
         return _DEEPFACE
     try:
+        if "DEEPFACE_HOME" not in _os.environ:
+            _models_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "models")
+            _os.environ["DEEPFACE_HOME"] = _models_dir
+            _os.makedirs(_os.path.join(_models_dir, ".deepface", "weights"), exist_ok=True)
         from deepface import DeepFace
         _DEEPFACE = DeepFace
         return DeepFace
@@ -658,9 +662,12 @@ def estimate_from_aligned_face(face_bgr, include_race: bool = False, tta: bool =
 
             race_probs = None
             if include_race:
-                # Chi neu nguoi dung bat tuy chon uoc luong vung mien thi moi goi nhe them DeepFace race
+                # Chi neu nguoi dung bat tuy chon uoc luong vung mien thi moi goi them DeepFace race
                 try:
-                    r_race = _analyze_skip(face, ["race"])
+                    face_race = face
+                    if face.shape[0] != 224 or face.shape[1] != 224:
+                        face_race = cv2.resize(face, (224, 224), interpolation=cv2.INTER_LINEAR)
+                    r_race = _analyze_skip(face_race, ["race"])
                     if r_race:
                         race_probs = r_race.get("race")
                 except Exception:

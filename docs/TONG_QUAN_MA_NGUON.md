@@ -218,7 +218,7 @@ Cap2/
 │   ├── age_gender_estimator.py   gọi DeepFace, lọc kết quả giả, hiệu chỉnh tuổi
 │   ├── region_mapping.py         nhóm chủng tộc DeepFace → nhóm khu vực
 │   ├── telegram_alert.py         trigger_buzzer_signal (còi ngoài) + gửi Telegram kiểu cũ
-│   ├── trackers/smartcau_botsort.yaml  cấu hình BoT-SORT tích hợp ReID chống nhảy ID (with_reid: true, model: auto, track_buffer: 90)
+│   ├── trackers/smartcau_botsort.yaml  cấu hình BoT-SORT tối ưu chống nhảy ID (track_buffer: 30)
 │   ├── camera_in.py, camera_out.py     camera kiểu CŨ (1 camera vào, 1 camera ra) — không dùng nữa, giữ tham khảo
 ├── tools/                        CÔNG CỤ
 │   ├── kiem_tra_mang.py          kiểm tra kết nối nhiều máy
@@ -310,9 +310,10 @@ Mỗi chức năng ghi: **làm gì → quy tắc → tệp code → API → bả
   - Khung hình được gửi lên backend qua `POST /bridge/stream_frame/{camera_id}` (~10–12 khung/giây). Tắt truyền luồng bằng cờ `--no-stream`.
   - Backend `routers/bridge.py` phát luồng liên tục dạng MJPEG tại `GET /bridge/stream/{camera_id}` và cung cấp ảnh chụp tức thời `GET /bridge/stream_snapshot/{camera_id}`.
   - Web Streamlit `frontend/views/camera.py` tích hợp tab **Xem Trực Tiếp (Live Stream)** hiển thị video 2 đầu cầu tập trung, tự động chuyển sang snapshot dự phòng nếu luồng bị ngắt.
-- **Bộ theo dõi chống "Nhảy ID / Đổi ID" (Tracking ID Switch) bằng ReID:**
-  - Tệp cấu hình `ai_engine/trackers/smartcau_botsort.yaml` kích hoạt **ReID** (`with_reid: true`) sử dụng đặc trưng native backbone detector (`model: auto`) kết hợp khoảng cách vị trí và Kalman filter.
-  - Tăng `track_buffer: 90` (~6 giây ở 15 khung hình/giây) giúp ghi nhớ đặc trưng vóc dáng/quần áo và duy trì ID liên tục khi khách đi khuất sau người khác hoặc quay lưng lại; ngưỡng đặc trưng ngoại quan `appearance_thresh: 0.25`.
+- **Bộ theo dõi tối ưu chống dính/nhảy ID:**
+  - Tệp cấu hình `ai_engine/trackers/smartcau_botsort.yaml` đặt `track_buffer: 30` (~2 giây ở 15 khung hình/giây) và `new_track_thresh: 0.45`: giải phóng track ID hợp lý khi khách đi qua vạch hoặc khuất hẳn, ngăn chặn triệt để việc giữ ID ma quá lâu làm gán nhầm ID của người đi trước cho người đi sau (bảo toàn độ chính xác nhận diện giới tính và tuổi).
+  - Tự động dọn dẹp hồ sơ người đã lưu trong `VisitorProfiler` sau 3 giây để sẵn sàng phân tích người mới khi ID được cấp lại.
+  - Cấu hình `DEEPFACE_HOME` lưu weights cục bộ và chuẩn hóa ảnh 224×224 cho mô hình chủng tộc giúp nhận diện nguồn khách (Trong nước / Quốc tế) ổn định, không bị lỗi cấp quyền.
 - **Nguồn hình:** webcam laptop `0`, webcam USB `1`/`2`, điện thoại `phone:<IP>` (IP Webcam) / `droidcam:<IP>`, `rtsp://...`, tệp video — `camera_backend.resolve_source`; webcam xin 1280x720 (`--cam-res`); luồng mạng mở bằng FFmpeg. Dò camera: `tools/tim_camera.py`. Hướng dẫn: `docs/CAMERA_NGOAI.md`.
 - **Đọc khung mới nhất:** `camera_backend.LatestFrameReader` (luồng `camera-reader`, bỏ khung cũ → hết trễ hình). Chỉ dùng cho webcam / RTSP, không dùng cho tệp video.
 - **Mạng chạy nền:** `camera_bridge.Net` — hàng đợi gửi (`_sender`) + luồng đọc trạng thái / ngưỡng (`_poller`) + luồng streaming (`_streamer`). Mất mạng không làm chậm camera; thanh trên hiện "MẤT KẾT NỐI SERVER".

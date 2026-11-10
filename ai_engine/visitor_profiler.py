@@ -237,9 +237,11 @@ class VisitorProfiler:
             if t.entered_at is not None and not t.done:
                 if now - t.entered_at >= self.give_up_sec or now - t.last_seen >= self.gone_sec:
                     self._save_unknown(tid, t)
-            if now - t.last_seen > self.forget_sec:
+            # Da luu xong ma vang mat > 3 giay -> giai phong som de tranh gan nham sang nguoi moi
+            max_linger = 3.0 if t.done else self.forget_sec
+            if now - t.last_seen > max_linger:
                 self.engine.forget(tid)
-                del self._tracks[tid]
+                self._tracks.pop(tid, None)
 
     # ---------------------------------------------------------- ket qua
     def origin_of(self, tid: int) -> Optional[str]:

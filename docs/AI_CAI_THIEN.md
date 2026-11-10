@@ -23,10 +23,11 @@ Tài liệu này rà soát toàn bộ chuỗi xử lý AI, chỉ ra điểm yế
    Hệ số được lưu ở `ai_engine/calibration/age_calibration.json`. Sau khi học, đo lại trên **tập ảnh khác** để có số nghiệm thu trung thực.
 3. **Chọn bộ tìm mặt** `--face-detector retinaface`: chính xác hơn YuNet với mặt nghiêng, nhỏ, nhưng chậm hơn vài lần.
 4. **Phát hiện người tốt hơn**: thêm `--imgsz 960` (hoặc 1280) và `--model yolov8s.pt` / `yolo11s.pt` (bản pose: `yolov8s-pose.pt`).
-5. **Bộ theo dõi chống "Nhảy ID" bằng ReID** (`ai_engine/trackers/smartcau_botsort.yaml`):
-   - Kích hoạt **ReID** (`with_reid: true`) kết hợp đặc trưng hình dạng/quần áo (`model: auto` trích xuất trực tiếp từ backbone detector) với khoảng cách chuyển động (Kalman Filter).
-   - Tăng `track_buffer: 90` (~6 giây ở 15 khung hình/giây) giúp duy trì ID khi khách đi khuất sau người khác hoặc quay lưng lại.
-   - Ngưỡng đặc trưng `appearance_thresh: 0.25` kết hợp lọc nhiễu ID ảo.
+5. **Bộ theo dõi tối ưu chống dính/nhảy ID** (`ai_engine/trackers/smartcau_botsort.yaml`):
+   - Đặt `track_buffer: 30` (~2 giây ở 15 khung hình/giây): Giải phóng track ID hợp lý khi khách đi qua vạch hoặc ra khỏi khung hình, ngăn chặn việc giữ ID ma quá lâu làm gán nhầm ID của người đi trước cho người đi sau (tránh sai lệch giới tính và độ tuổi).
+   - Ngưỡng tạo ID `new_track_thresh: 0.45` và `track_high_thresh: 0.35` lọc bỏ hoàn toàn các khung nhiễu.
+   - Cơ chế giải phóng hồ sơ nhanh trong `visitor_profiler.py` khi người đã lưu xong rời đi quá 3 giây.
+   - Thiết lập `DEEPFACE_HOME` cục bộ và chuẩn hóa ảnh 224×224 cho mô hình `race` giúp nhận diện nguồn khách (Trong nước / Quốc tế) ổn định, không bị lỗi cấp quyền.
 6. **Bỏ phiếu theo thời gian** (có từ trước): nhiều khung hình, cần ≥ 70% đồng thuận; dưới mức đó ghi "Không xác định" (BRULE-06).
 
 ### Cấu hình khuyến nghị theo máy
